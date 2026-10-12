@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { formatRange } from "./time";
 
 const MAX_DURATION_HOURS = 12;
 
@@ -98,7 +99,7 @@ export async function createReservation(
         ok: false,
         code: "CONFLICT",
         message: first
-          ? `${resource.name} is already booked by ${first.user.name} from ${first.startAt.toISOString()} to ${first.endAt.toISOString()}`
+          ? `${resource.name} is already booked by ${first.user.name}, ${formatRange(first.startAt, first.endAt)}. Pick another time.`
           : `${resource.name} was just booked for that time. Pick another slot.`,
       };
     }
