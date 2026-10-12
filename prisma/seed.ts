@@ -4,7 +4,11 @@ import bcrypt from "bcryptjs";
 const db = new PrismaClient();
 
 const HOUR = 3_600_000;
-const hoursFromNow = (h: number) => new Date(Date.now() + h * HOUR);
+// Align demo bookings to whole hours in Sri Lanka time (UTC+5:30),
+// so they never overlap a booking by a few seconds.
+const SL_OFFSET = 5.5 * HOUR;
+const hoursFromNow = (h: number) =>
+  new Date(Math.floor((Date.now() + SL_OFFSET + h * HOUR) / HOUR) * HOUR - SL_OFFSET);
 
 // Small deterministic random generator so every seed run gives the same history.
 function rng(seed: number) {

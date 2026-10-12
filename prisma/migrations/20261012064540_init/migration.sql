@@ -87,8 +87,6 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 ALTER TABLE "Reservation"
   ADD CONSTRAINT reservation_end_after_start CHECK ("endAt" > "startAt");
 
--- No two CONFIRMED reservations of the same resource may overlap.
--- '[)' means back-to-back bookings (10:00-11:00 then 11:00-12:00) are allowed.
 -- Cancelled reservations are ignored, so a freed slot can be re-booked.
 ALTER TABLE "Reservation"
   ADD CONSTRAINT reservation_no_overlap
