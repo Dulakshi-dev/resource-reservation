@@ -9,7 +9,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const items = [
     { href: "/", label: "Resources" },
     { href: "/reservations", label: "Reservations" },
-    ...(user.role === "ADMIN" ? [{ href: "/admin/resources", label: "Manage resources" }] : []),
+    ...(user.role === "ADMIN"
+      ? [
+          { href: "/admin/usage", label: "Usage" },
+          { href: "/admin/resources", label: "Manage resources" },
+        ]
+      : []),
   ];
 
   return (

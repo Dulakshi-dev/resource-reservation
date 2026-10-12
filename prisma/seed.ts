@@ -1,9 +1,21 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient, ReservationStatus, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const db = new PrismaClient();
 
-const hoursFromNow = (h: number) => new Date(Date.now() + h * 3_600_000);
+const HOUR = 3_600_000;
+const hoursFromNow = (h: number) => new Date(Date.now() + h * HOUR);
+
+// Small deterministic random generator so every seed run gives the same history.
+function rng(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) % 4294967296;
+    return s / 4294967296;
+  };
+}
+
+const TITLES = ["Team sync", "Client call", "Sprint planning", "Workshop", "Interview", "Training", "Site visit", "Demo"];
 
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);
@@ -26,12 +38,13 @@ async function main() {
     categoryIds[name] = c.id;
   }
 
+  // busyness is how likely a resource is to be booked on a working day
   const resources = [
-    { name: "Boardroom", category: "Meeting Room", capacity: 12, location: "Floor 3" },
-    { name: "Huddle Room A", category: "Meeting Room", capacity: 4, location: "Floor 2" },
-    { name: "Training Lab", category: "Lab", capacity: 20, location: "Floor 1" },
-    { name: "Company Van", category: "Vehicle", capacity: 8, location: "Basement parking" },
-    { name: "Projector Kit", category: "Equipment", capacity: null, location: "Reception" },
+    { name: "Boardroom", category: "Meeting Room", capacity: 12, location: "Floor 3", busyness: 0.8 },
+    { name: "Huddle Room A", category: "Meeting Room", capacity: 4, location: "Floor 2", busyness: 0.55 },
+    { name: "Training Lab", category: "Lab", capacity: 20, location: "Floor 1", busyness: 0.25 },
+    { name: "Company Van", category: "Vehicle", capacity: 8, location: "Basement parking", busyness: 0.4 },
+    { name: "Projector Kit", category: "Equipment", capacity: null, location: "Reception", busyness: 0.15 },
   ];
 
   // Re-seeding resets resources and reservations so the script stays idempotent.
@@ -42,16 +55,55 @@ async function main() {
   for (const r of resources) {
     created.push(
       await db.resource.create({
-        data: {
-          name: r.name,
-          capacity: r.capacity,
-          location: r.location,
-          categoryId: categoryIds[r.category],
-        },
+        data: { name: r.name, capacity: r.capacity, location: r.location, categoryId: categoryIds[r.category] },
       }),
     );
   }
 
+  // ---- 28 days of past bookings (working days only, never overlapping) ----
+  const random = rng(42);
+  const users = [admin.id, member.id];
+  const history: {
+    resourceId: string;
+    userId: string;
+    title: string;
+    startAt: Date;
+    endAt: Date;
+    status: ReservationStatus;
+    cancelledAt: Date | null;
+  }[] = [];
+
+  const todayUtc = new Date();
+  for (let back = 28; back >= 1; back--) {
+    const day = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() - back));
+    const weekday = day.getUTCDay();
+    if (weekday === 0 || weekday === 6) continue;
+    const key = day.toISOString().slice(0, 10);
+    const midnight = new Date(`${key}T00:00:00+05:30`).getTime();
+
+    resources.forEach((res, i) => {
+      let cursor = 8;
+      while (cursor < 18 && random() < res.busyness) {
+        const start = cursor + Math.floor(random() * 3);
+        const length = 1 + Math.floor(random() * 3);
+        if (start + length > 19) break;
+        const cancelled = random() < 0.1;
+        history.push({
+          resourceId: created[i].id,
+          userId: users[Math.floor(random() * users.length)],
+          title: TITLES[Math.floor(random() * TITLES.length)],
+          startAt: new Date(midnight + start * HOUR),
+          endAt: new Date(midnight + (start + length) * HOUR),
+          status: cancelled ? ReservationStatus.CANCELLED : ReservationStatus.CONFIRMED,
+          cancelledAt: cancelled ? new Date(midnight + (start - 1) * HOUR) : null,
+        });
+        cursor = start + length;
+      }
+    });
+  }
+  await db.reservation.createMany({ data: history });
+
+  // ---- a few upcoming bookings for the demo ----
   await db.reservation.createMany({
     data: [
       { resourceId: created[0].id, userId: admin.id, title: "Weekly planning", startAt: hoursFromNow(24), endAt: hoursFromNow(25) },
@@ -60,7 +112,7 @@ async function main() {
     ],
   });
 
-  console.log("Seeded: 2 users, %d categories, %d resources", categories.length, created.length);
+  console.log("Seeded: 2 users, %d categories, %d resources, %d past bookings", categories.length, created.length, history.length);
 }
 
 main()
